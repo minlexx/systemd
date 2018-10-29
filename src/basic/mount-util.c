@@ -163,6 +163,8 @@ int fd_is_mount_point(int fd, const char *filename, int flags) {
         assert(fd >= 0);
         assert(filename);
 
+        log_emergency("fd_is_mount_point: fd=%d, filename=%s, flags=%d", fd, filename, flags);
+
         /* First we will try the name_to_handle_at() syscall, which
          * tells us the mount id and an opaque file "handle". It is
          * not supported everywhere though (kernel compile-time
@@ -232,6 +234,8 @@ int fd_is_mount_point(int fd, const char *filename, int flags) {
         return mount_id != mount_id_parent;
 
 fallback_fdinfo:
+        log_emergency("fallback_fdinfo");
+
         r = fd_fdinfo_mnt_id(fd, filename, flags, &mount_id);
         if (IN_SET(r, -EOPNOTSUPP, -EACCES, -EPERM))
                 goto fallback_fstat;
@@ -254,6 +258,8 @@ fallback_fdinfo:
         check_st_dev = false;
 
 fallback_fstat:
+        log_emergency("fallback_fstat");
+
         /* yay for fstatat() taking a different set of flags than the other
          * _at() above */
         if (flags & AT_SYMLINK_FOLLOW)
@@ -287,14 +293,18 @@ int path_is_mount_point(const char *t, const char *root, int flags) {
         if (path_equal(t, "/"))
                 return 1;
 
+        log_emergency("path_is_mount_point: before chase_symlinks()");
+
         /* we need to resolve symlinks manually, we can't just rely on
          * fd_is_mount_point() to do that for us; if we have a structure like
          * /bin -> /usr/bin/ and /usr is a mount point, then the parent that we
          * look at needs to be /usr, not /. */
         if (flags & AT_SYMLINK_FOLLOW) {
                 r = chase_symlinks(t, root, 0, &canonical);
-                if (r < 0)
+                if (r < 0) {
+                        log_emergency("path_is_mount_point: chase_symlinks failed with: %d", r);
                         return r;
+                }
 
                 t = canonical;
         }
@@ -302,6 +312,8 @@ int path_is_mount_point(const char *t, const char *root, int flags) {
         parent = dirname_malloc(t);
         if (!parent)
                 return -ENOMEM;
+
+        log_emergency("path_is_mount_point: opening fd for: %s", parent);
 
         fd = openat(AT_FDCWD, parent, O_DIRECTORY|O_CLOEXEC|O_PATH);
         if (fd < 0)

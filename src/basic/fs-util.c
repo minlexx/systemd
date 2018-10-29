@@ -664,10 +664,14 @@ int chase_symlinks(const char *path, const char *original_root, unsigned flags, 
         if (isempty(original_root) || path_equal(original_root, "/"))
                 original_root = NULL;
 
+        log_emergency("chase_symlinks: path = %s, original_root = %s", path, original_root);
+
         if (original_root) {
                 r = path_make_absolute_cwd(original_root, &root);
-                if (r < 0)
+                if (r < 0) {
+                        log_emergency("chase_symlinks: path_make_absolute_cwd() failed with %d (1)", r);
                         return r;
+                }
 
                 if (flags & CHASE_PREFIX_ROOT) {
 
@@ -680,16 +684,23 @@ int chase_symlinks(const char *path, const char *original_root, unsigned flags, 
         }
 
         r = path_make_absolute_cwd(path, &buffer);
-        if (r < 0)
+        if (r < 0) {
+                log_emergency("chase_symlinks: path_make_absolute_cwd() failed with %d (2)", r);
                 return r;
+        }
 
         fd = open("/", O_CLOEXEC|O_NOFOLLOW|O_PATH);
-        if (fd < 0)
+        if (fd < 0) {
+                log_emergency("chase_symlinks: open / failed with %d", errno);
                 return -errno;
+        }
+        log_emergency("chase_symlinks: opened '/' as fd = %d", fd);
 
         if (flags & CHASE_SAFE) {
-                if (fstat(fd, &previous_stat) < 0)
+                if (fstat(fd, &previous_stat) < 0) {
+                        log_emergency("chase_symlinks: CHASE_SAFE: fstat fd / failed with %d", errno);
                         return -errno;
+                }
         }
 
         todo = buffer;
@@ -750,12 +761,16 @@ int chase_symlinks(const char *path, const char *original_root, unsigned flags, 
                         free_and_replace(done, parent);
 
                         fd_parent = openat(fd, "..", O_CLOEXEC|O_NOFOLLOW|O_PATH);
-                        if (fd_parent < 0)
+                        if (fd_parent < 0) {
+                                log_emergency("chase_symlinks:  loop: openat(..) failed with %d", errno);
                                 return -errno;
+                        }
 
                         if (flags & CHASE_SAFE) {
-                                if (fstat(fd_parent, &st) < 0)
+                                if (fstat(fd_parent, &st) < 0) {
+                                        log_emergency("chase_symlinks:  loop: fstat(fd_parent, ...) failed with %d", errno);
                                         return -errno;
+                                }
 
                                 if (!safe_transition(&previous_stat, &st))
                                         return -EPERM;
@@ -771,7 +786,9 @@ int chase_symlinks(const char *path, const char *original_root, unsigned flags, 
                 }
 
                 /* Otherwise let's see what this is. */
+                log_emergency("chase_symlinks:  loop: opening child: openat(%d, \"%s\", ...) ...", fd, first + n);
                 child = openat(fd, first + n, O_CLOEXEC|O_NOFOLLOW|O_PATH);
+                log_emergency("    child = %d", child);
                 if (child < 0) {
 
                         if (errno == ENOENT &&
@@ -793,11 +810,14 @@ int chase_symlinks(const char *path, const char *original_root, unsigned flags, 
                                 break;
                         }
 
+                        log_emergency("chase_symlinks:  loop: openat(first + n) failed with %d", errno);
                         return -errno;
                 }
 
-                if (fstat(child, &st) < 0)
+                if (fstat(child, &st) < 0) {
+                        log_emergency("chase_symlinks:  loop: fstat(child, ...) failed with %d", errno);
                         return -errno;
+                }
                 if ((flags & CHASE_SAFE) &&
                     !safe_transition(&previous_stat, &st))
                         return -EPERM;
@@ -819,8 +839,10 @@ int chase_symlinks(const char *path, const char *original_root, unsigned flags, 
                                 return -ELOOP;
 
                         r = readlinkat_malloc(fd, first + n, &destination);
-                        if (r < 0)
+                        if (r < 0) {
+                                log_emergency("chase_symlinks:  loop: readlinkat_malloc() failed with %d", r);
                                 return r;
+                        }
                         if (isempty(destination))
                                 return -EINVAL;
 
@@ -831,12 +853,16 @@ int chase_symlinks(const char *path, const char *original_root, unsigned flags, 
 
                                 safe_close(fd);
                                 fd = open(root ?: "/", O_CLOEXEC|O_NOFOLLOW|O_PATH);
-                                if (fd < 0)
+                                if (fd < 0) {
+                                        log_emergency("chase_symlinks:  loop: open(root ?: /) failed with %d", errno);
                                         return -errno;
+                                }
 
                                 if (flags & CHASE_SAFE) {
-                                        if (fstat(fd, &st) < 0)
+                                        if (fstat(fd, &st) < 0) {
+                                                log_emergency("chase_symlinks:  loop: fstat(fd, &st) (3rd) failed with %d", errno);
                                                 return -errno;
+                                        }
 
                                         if (!safe_transition(&previous_stat, &st))
                                                 return -EPERM;
@@ -910,9 +936,11 @@ int chase_symlinks(const char *path, const char *original_root, unsigned flags, 
                 q = fd;
                 fd = -1;
 
+                log_emergency("chase_symlinks: flags & CHASE_OPEN: returning q = %d", q);
                 return q;
         }
 
+        log_emergency("chase_symlinks: last return = %d", exists);
         return exists;
 }
 
