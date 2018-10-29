@@ -141,7 +141,8 @@ static uint64_t arg_default_tasks_max = UINT64_MAX;
 static sd_id128_t arg_machine_id = {};
 static EmergencyAction arg_cad_burst_action = EMERGENCY_ACTION_REBOOT_FORCE;
 
-noreturn static void freeze_or_reboot(void) {
+//noreturn
+static void freeze_or_reboot(void) {
 
         if (arg_crash_reboot) {
                 log_notice("Rebooting in 10s...");
@@ -152,11 +153,13 @@ noreturn static void freeze_or_reboot(void) {
                 log_emergency_errno(errno, "Failed to reboot: %m");
         }
 
-        log_emergency("Freezing execution.");
-        freeze();
+        //log_emergency("Freezing execution.");
+        //freeze();
+        log_emergency("Lexx fix: do not freeze, instead just exit causing kernel to panic and dmesg to be stored in ANDROID_RAM_CONSOLE.");
 }
 
-noreturn static void crash(int sig) {
+//noreturn
+static void crash(int sig) {
         struct sigaction sa;
         pid_t pid;
 
@@ -2360,20 +2363,25 @@ int main(int argc, char *argv[]) {
                         r = mount_setup_early();
                         if (r < 0) {
                                 error_message = "Failed to mount early API filesystems";
+                                log_emergency("Failed to mount early API filesystems");
                                 goto finish;
                         }
+                        log_emergency("mount_setup_early() OK");
 
                         r = initialize_security(
                                         &loaded_policy,
                                         &security_start_timestamp,
                                         &security_finish_timestamp,
                                         &error_message);
-                        if (r < 0)
+                        if (r < 0) {
+                                log_emergency("Failed to initialize_security()");
                                 goto finish;
+                        }
                 }
 
                 if (mac_selinux_init() < 0) {
                         error_message = "Failed to initialize SELinux policy";
+                        log_emergency("Failed to initialize SELinux policy");
                         goto finish;
                 }
 
@@ -2623,6 +2631,9 @@ finish:
                                               "%s, freezing.", error_message);
                 freeze_or_reboot();
         }
+
+        log_emergency("Before exiting, save dmesg to /data/last_dmesg...");
+        system("dmesg > /data/last_dmesg");
 
         return retval;
 }
