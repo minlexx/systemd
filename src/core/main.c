@@ -142,6 +142,38 @@ static uint64_t arg_default_tasks_max = UINT64_MAX;
 static sd_id128_t arg_machine_id = {};
 static EmergencyAction arg_cad_burst_action = EMERGENCY_ACTION_REBOOT_FORCE;
 
+
+static void store_dmesg(void) {
+#define SYSLOG_ACTION_READ_ALL      3
+#define SYSLOG_ACTION_SIZE_BUFFER   10 // (since Linux 2.6.6)
+        int dmesg_size;
+        char *buf;
+        FILE *f;
+
+        log_emergency("Before exiting, save dmesg to /data/last_dmesg...");
+
+        // get kernel log buffer size
+        dmesg_size = klogctl(SYSLOG_ACTION_SIZE_BUFFER, NULL, 0);
+
+        buf = (char *)malloc(dmesg_size + 16);
+        if (buf) {
+                memset(buf, 0, dmesg_size + 16);
+
+                klogctl(SYSLOG_ACTION_READ_ALL, buf, dmesg_size);
+
+                f = fopen("/data/last_dmesg", "wt");
+                if (f) {
+                        fputs(buf, f);
+                        fflush(f);
+                        syncfs(fileno(f));
+                        fclose(f);
+                        log_emergency("...saved.");
+                }
+
+                free(buf);
+        }
+}
+
 //noreturn
 static void freeze_or_reboot(void) {
 
@@ -157,6 +189,9 @@ static void freeze_or_reboot(void) {
         //log_emergency("Freezing execution.");
         //freeze();
         log_emergency("Lexx fix: do not freeze, instead just exit causing kernel to panic and dmesg to be stored in ANDROID_RAM_CONSOLE.");
+        store_dmesg();
+        (void) sleep(5);
+        exit(1);
 }
 
 //noreturn
@@ -1627,10 +1662,14 @@ static void initialize_coredump(bool skip_setup) {
         if (setrlimit(RLIMIT_CORE, &RLIMIT_MAKE_CONST(RLIM_INFINITY)) < 0)
                 log_warning_errno(errno, "Failed to set RLIMIT_CORE: %m");
 
+        log_emergency("initialize_coredump: setrlimit OK");
+
         /* But at the same time, turn off the core_pattern logic by default, so that no coredumps are stored
          * until the systemd-coredump tool is enabled via sysctl. */
-        if (!skip_setup)
+        if (!skip_setup) {
+                log_emergency("initialize_coredump: disabling coredumps");
                 disable_coredumps();
+        }
 }
 
 static void do_reexecute(
@@ -2202,10 +2241,14 @@ static int initialize_security(
 
         int r;
 
+        log_emergency("initialize_security: before asserts");
+
         assert(loaded_policy);
         assert(security_start_timestamp);
         assert(security_finish_timestamp);
         assert(ret_error_message);
+
+        log_emergency("initialize_security: after asserts");
 
         dual_timestamp_get(security_start_timestamp);
 
@@ -2298,38 +2341,6 @@ static bool early_skip_setup_check(int argc, char *argv[]) {
 }
 
 
-static void store_dmesg(void) {
-#define SYSLOG_ACTION_READ_ALL      3
-#define SYSLOG_ACTION_SIZE_BUFFER   10 // (since Linux 2.6.6)
-        int dmesg_size;
-        char *buf;
-        FILE *f;
-
-        log_emergency("Before exiting, save dmesg to /data/last_dmesg...");
-
-        // get kernel log buffer size
-        dmesg_size = klogctl(SYSLOG_ACTION_SIZE_BUFFER, NULL, 0);
-
-        buf = (char *)malloc(dmesg_size + 16);
-        if (buf) {
-                memset(buf, 0, dmesg_size + 16);
-
-                klogctl(SYSLOG_ACTION_READ_ALL, buf, dmesg_size);
-
-                f = fopen("/data/last_dmesg", "wt");
-                if (f) {
-                        fputs(buf, f);
-                        fflush(f);
-                        syncfs(fileno(f));
-                        fclose(f);
-                        log_emergency("...saved.");
-                }
-
-                free(buf);
-        }
-}
-
-
 int main(int argc, char *argv[]) {
 
         dual_timestamp initrd_timestamp = DUAL_TIMESTAMP_NULL, userspace_timestamp = DUAL_TIMESTAMP_NULL, kernel_timestamp = DUAL_TIMESTAMP_NULL,
@@ -2419,6 +2430,8 @@ int main(int argc, char *argv[]) {
                         goto finish;
                 }
 
+                log_emergency("Security and selinux init OK");
+
                 if (!skip_setup)
                         initialize_clock();
 
@@ -2428,7 +2441,7 @@ int main(int argc, char *argv[]) {
                  * be journal fd open, and we shouldn't attempt
                  * opening that before we parsed /proc/cmdline which
                  * might redirect output elsewhere. */
-                log_set_target(LOG_TARGET_JOURNAL_OR_KMSG);
+                //log_set_target(LOG_TARGET_JOURNAL_OR_KMSG);  // continue logging to kernel
 
         } else if (getpid_cached() == 1) {
                 /* Running inside a container, as PID 1 */
@@ -2453,8 +2466,10 @@ int main(int argc, char *argv[]) {
                 kernel_timestamp = DUAL_TIMESTAMP_NULL;
         }
 
+        log_emergency("Initializing coredump... skip_setup = %d", skip_setup);
         initialize_coredump(skip_setup);
 
+        log_emergency("Fixing environment...");
         r = fixup_environment();
         if (r < 0) {
                 log_emergency_errno(r, "Failed to fix up PID 1 environment: %m");
@@ -2462,16 +2477,21 @@ int main(int argc, char *argv[]) {
                 goto finish;
         }
 
+        log_emergency("arg_system = %d", arg_system);
+
         if (arg_system) {
 
                 /* Try to figure out if we can use colors with the console. No
                  * need to do that for user instances since they never log
                  * into the console. */
-                log_show_color(colors_enabled());
-                r = make_null_stdio();
-                if (r < 0)
-                        log_warning_errno(r, "Failed to redirect standard streams to /dev/null: %m");
+                //log_show_color(colors_enabled());
+                //r = make_null_stdio();
+                //if (r < 0) {
+                //        log_emergency_errno(r, "Failed to redirect standard streams to /dev/null: %m");
+                //}
         }
+
+        log_emergency("Mounting API filesystems");
 
         /* Mount /proc, /sys and friends, so that /proc/cmdline and
          * /proc/$PID/fd is available. */
@@ -2484,6 +2504,7 @@ int main(int argc, char *argv[]) {
                 r = mount_setup(loaded_policy);
                 if (r < 0) {
                         error_message = "Failed to mount API filesystems";
+                        log_emergency("Failed to mount API filesystems");
                         goto finish;
                 }
         }
@@ -2493,12 +2514,16 @@ int main(int argc, char *argv[]) {
         (void) ignore_signals(SIGNALS_IGNORE, -1);
 
         r = load_configuration(argc, argv, &error_message);
-        if (r < 0)
+        if (r < 0) {
+                log_emergency("Failed to load_configuration: %d", r);
                 goto finish;
+        }
 
         r = safety_checks();
-        if (r < 0)
+        if (r < 0) {
+                log_emergency("safety_checks() failed: %d", r);
                 goto finish;
+        }
 
         if (IN_SET(arg_action, ACTION_TEST, ACTION_HELP, ACTION_DUMP_CONFIGURATION_ITEMS))
                 pager_open(arg_no_pager, false);
@@ -2518,10 +2543,14 @@ int main(int argc, char *argv[]) {
                 goto finish;
         }
 
+        log_emergency("Finished initial parsing of arguments");
+
         assert_se(IN_SET(arg_action, ACTION_RUN, ACTION_TEST));
 
         /* Move out of the way, so that we won't block unmounts */
         assert_se(chdir("/") == 0);
+
+        log_emergency("chdir / OK");
 
         if (arg_action == ACTION_RUN) {
 
@@ -2530,8 +2559,10 @@ int main(int argc, char *argv[]) {
 
                 /* Remember open file descriptors for later deserialization */
                 r = collect_fds(&fds, &error_message);
-                if (r < 0)
+                if (r < 0) {
+                        log_emergency("collect_fds() failed: %d", r);
                         goto finish;
+                }
 
                 /* Give up any control of the console, but make sure its initialized. */
                 setup_console_terminal(skip_setup);
@@ -2546,8 +2577,10 @@ int main(int argc, char *argv[]) {
                                &saved_rlimit_nofile,
                                &saved_rlimit_memlock,
                                &error_message);
-        if (r < 0)
+        if (r < 0) {
+                log_emergency("initialize_runtime() failed: %d", r);
                 goto finish;
+        }
 
         r = manager_new(arg_system ? UNIT_FILE_SYSTEM : UNIT_FILE_USER,
                         arg_action == ACTION_TEST ? MANAGER_TEST_FULL : 0,
@@ -2586,8 +2619,10 @@ int main(int argc, char *argv[]) {
 
         if (queue_default_job) {
                 r = do_queue_default_job(m, &error_message);
-                if (r < 0)
+                if (r < 0) {
+                        log_emergency("do_queue_default_job() failed: %d", r);
                         goto finish;
+                }
         }
 
         after_startup = now(CLOCK_MONOTONIC);
@@ -2602,6 +2637,8 @@ int main(int argc, char *argv[]) {
                 goto finish;
         }
 
+        log_emergency("invoking main loop");
+        store_dmesg();
         (void) invoke_main_loop(m,
                                 &reexecute,
                                 &retval,
@@ -2612,6 +2649,7 @@ int main(int argc, char *argv[]) {
                                 &error_message);
 
 finish:
+        log_emergency("got to label finish:, finishing");
         pager_close();
 
         if (m)
@@ -2667,6 +2705,6 @@ finish:
         }
 
         store_dmesg();
-
+        (void) sleep(2);
         return retval;
 }
