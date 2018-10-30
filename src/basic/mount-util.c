@@ -292,6 +292,14 @@ int path_is_mount_point(const char *t, const char *root, int flags) {
 
         if (path_equal(t, "/"))
                 return 1;
+        if (path_equal(t, "/sys") || path_equal(t, "/proc") || path_equal(t, "/dev")
+                || path_equal(t, "/sys/kernel/security"))
+        {
+                // https://archlinuxarm.org/forum/viewtopic.php?f=47&t=9225
+                // https://forum.armbian.com/topic/4710-systemd-failed-to-boot-bad-file-descriptor/
+                log_emergency("Lexx hack: path_is_mount_point(%s): returning false", t);
+                return 1;
+        }
 
         log_emergency("path_is_mount_point: before chase_symlinks()");
 
