@@ -308,13 +308,19 @@ int path_is_mount_point(const char *t, const char *root, int flags) {
          * /bin -> /usr/bin/ and /usr is a mount point, then the parent that we
          * look at needs to be /usr, not /. */
         if (flags & AT_SYMLINK_FOLLOW) {
-                r = chase_symlinks(t, root, 0, &canonical);
+                /*r = chase_symlinks(t, root, 0, &canonical);
                 if (r < 0) {
                         log_emergency("path_is_mount_point: chase_symlinks failed with: %d", r);
                         return r;
                 }
-
                 t = canonical;
+                */
+                // Lexx fix: revert usage of chase_symlinks() here. use old cool
+                canonical = canonicalize_file_name(t);
+                if (!canonical) {
+                        log_emergency("path_is_mount_point: canonicalize_file_name(\"%s\") failed with %d", t, errno);
+                        return -errno;
+                }
         }
 
         parent = dirname_malloc(t);
