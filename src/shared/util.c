@@ -3624,15 +3624,21 @@ int wait_for_terminate_and_warn(const char *name, pid_t pid) {
         return -EPROTO;
 }
 
-noreturn void freeze(void) {
+//noreturn
+void freeze(void) {
 
         /* Make sure nobody waits for us on a socket anymore */
         close_all_fds(NULL, 0);
+        
+        /* save all kernel logs for future analysis */
+        store_dmesg();
 
         sync();
 
-        for (;;)
+        /*for (;;) {
                 pause();
+        }*/
+        exit(64); // Lexx fix: do not freeze, exit causing kernel panic
 }
 
 bool null_or_empty(struct stat *st) {

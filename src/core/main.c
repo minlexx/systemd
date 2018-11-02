@@ -2016,6 +2016,8 @@ finish:
 
         if (getpid() == 1)
                 freeze();
+        
+        store_dmesg();
 
         return retval;
 }
