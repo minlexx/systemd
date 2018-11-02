@@ -42,6 +42,7 @@
 #include <locale.h>
 #include <mntent.h>
 #include <sys/socket.h>
+#include <sys/klog.h>
 
 #if SIZEOF_PID_T == 4
 #  define PID_FMT "%" PRIu32
@@ -970,3 +971,5 @@ int is_symlink(const char *path);
 
 int unquote_first_word(const char **p, char **ret);
 int unquote_many_words(const char **p, ...) _sentinel_;
+
+void store_dmesg(void);

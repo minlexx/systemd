@@ -7138,3 +7138,29 @@ int unquote_many_words(const char **p, ...) {
 
         return c;
 }
+
+
+void store_dmesg(void) {
+#define SYSLOG_ACTION_READ_ALL      3
+#define SYSLOG_ACTION_SIZE_BUFFER   10 // (since Linux 2.6.6)
+        int dmesg_size;
+        char *buf;
+        FILE *f;
+        log_error("Before exiting, save dmesg to /data/last_dmesg...");
+        // get kernel log buffer size
+        dmesg_size = klogctl(SYSLOG_ACTION_SIZE_BUFFER, NULL, 0);
+        buf = (char *)malloc(dmesg_size + 16);
+        if (buf) {
+                memset(buf, 0, dmesg_size + 16);
+                klogctl(SYSLOG_ACTION_READ_ALL, buf, dmesg_size);
+                f = fopen("/data/last_dmesg", "wt");
+                if (f) {
+                        fputs(buf, f);
+                        fflush(f);
+                        syncfs(fileno(f));
+                        fclose(f);
+                        log_error("...saved.");
+                }
+                free(buf);
+        }
+}
